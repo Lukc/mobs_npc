@@ -70,24 +70,11 @@ mobs:register_mob("mobs_npc:trader", {
 		punch_end = 219,
 	},
 	on_rightclick = function(self, clicker)
-		--[[for k,v in pairs(self) do print(k,v) end
-		smartshop.showform(self.object:getpos(), clicker, nil, {
-			get_inventory = function() end,
-			get_string = function(s)
-				if s == "owner" then
-					return self.owner
-				end
-			end,
-			get_int = function() return 0 end,
-			get_inventory = function()
-				return self.object:get_inventory()
-			end,
-		})
-		--]]
-		mobs_trader(self, clicker, entity, mobs.human)
+		mobs_trader(self, clicker, nil, mobs.human)
 	end,
 })
 
+-- FIXME: Move this somewhere else. 
 --This code comes almost exclusively from the trader and inventory of mobf, by Sapier.
 --The copyright notice below is from mobf:
 -------------------------------------------------------------------------------
@@ -111,129 +98,28 @@ mobs:register_mob("mobs_npc:trader", {
 -- Contact sapier a t gmx net
 -------------------------------------------------------------------------------
 
-function mobs.allow_move(inv, from_list, from_index, to_list, to_index, count, player)
-
-	if to_list ~= "selection"
-	or from_list == "price"
-	or from_list == "payment"
-	or from_list == "takeaway"
-	or from_list == "identifier" then
-
-		return 0
-	end
-
-	-- forbid moving split stacks
-	local old_stack = inv.get_stack(inv, from_list, from_index)
-
-	if count ~= old_stack.get_count(old_stack) then
+function mobs.allow_move(inventory, fromList, fromIndex, toList, toindex, count, player)
+	if not minetest.check_player_privs(player, {give = true}) then
 		return 0
 	end
 
 	return count
 end
 
-function mobs.allow_put(inv, listname, index, stack, player)
-
-	if listname == "payment" then
-		return 99
-	end
-
-	return 0
-end
-
-function mobs.allow_take(inv, listname, index, stack, player)
-
-	if listname == "takeaway"
-	or listname == "payment" then
-
-		return 99
-	else
+function mobs.allow_put(inventory, listName, index, stack, player)
+	if not minetest.check_player_privs(player, {give = true}) then
 		return 0
 	end
+
+	return stack:get_count()
 end
 
-function mobs.on_put(inv, listname, index, stack)
-
-	if listname == "payment" then
-		mobs.update_takeaway(inv)
-	end
-end
-
-function mobs.on_take(inv, listname, count, index, stack, player)
-
-	if listname == "takeaway" then
-
-		local amount = inv:get_stack("payment", 1):get_count()
-		local price = inv:get_stack("price", 1):get_count()
-		local thing = inv:get_stack("payment", 1):get_name()
-
-		inv.set_stack(inv,"selection", 1, nil)
-		inv.set_stack(inv,"price", 1, nil)
-		inv.set_stack(inv,"takeaway", 1, nil)
-		inv.set_stack(inv,"payment", 1, thing .. " " .. amount - price)
+function mobs.allow_take(inventory, listName, index, stack, player)
+	if not minetest.check_player_privs(player, {give = true}) then
+		return 0
 	end
 
-	if listname == "payment" then
-
-		if mobs.check_pay(inv, false) then
-
-			local selection = inv.get_stack(inv, "selection", 1)
-
-			if selection ~= nil then
-				inv.set_stack(inv,"takeaway", 1, selection)
-			end
-		else
-			inv.set_stack(inv, "takeaway", 1, nil)
-		end
-	end
-end
-
-function mobs.update_takeaway(inv)
-
-	if mobs.check_pay(inv,false) then
-
-		local selection = inv.get_stack(inv,"selection", 1)
-
-		if selection ~= nil then
-			inv.set_stack(inv,"takeaway", 1, selection)
-		end
-	else
-		inv.set_stack(inv,"takeaway", 1, nil)
-	end
-end
-
-function mobs.check_pay(inv, paynow)
-
-	local now_at_pay = inv.get_stack(inv,"payment", 1)
-	local count = now_at_pay.get_count(now_at_pay)
-	local name  = now_at_pay.get_name(now_at_pay)
-	local price = inv.get_stack(inv, "price", 1)
-
-	if price:get_name() == name then
-
-		local price = price:get_count()
-
-		if price > 0
-		and price <= count then
-
-			if paynow then
-
-				now_at_pay.take_item(now_at_pay, price)
-
-				inv.set_stack(inv,"payment", 1, now_at_pay)
-
-				return true
-			else
-				return true
-			end
-		else
-			if paynow then
-				inv.set_stack(inv, "payment", 1, nil)
-			end
-		end
-	end
-
-	return false
+	return stack:get_count()
 end
 
 mobs.trader_inventories = {}
@@ -259,9 +145,15 @@ function mobs.add_goods(entity, race)
 	end
 end
 
+-- @ignored: entity
 function mobs_trader(self, clicker, entity, race)
-
 	local player = clicker:get_player_name()
+
+	if not self.editing then
+		self.editing = {}
+	end
+
+	local editing = self.editing[clicker:get_player_name()]
 
 	if not self.id then
 		self.id = (math.random(1, 1000) * math.random(1, 10000))
@@ -281,8 +173,7 @@ function mobs_trader(self, clicker, entity, race)
 	end
 
 	local unique_entity_id = self.id
-	local is_inventory = minetest.get_inventory({
-		type = "detached", name = unique_entity_id})
+	local is_inventory = minetest.get_inventory({type = "detached", name = unique_entity_id})
 
 	in_trade[clicker:get_player_name()] = self
 
@@ -291,55 +182,6 @@ function mobs_trader(self, clicker, entity, race)
 		allow_move = mobs.allow_move,
 		allow_put = mobs.allow_put,
 		allow_take = mobs.allow_take,
-
-		on_move = function(inventory, from_list, from_index, to_list, to_index, count, player)
-
-			if from_list == "goods"
-			and to_list == "selection" then
-
-				local inv = inventory
-				local moved = inv.get_stack(inv,to_list, to_index)
-				local goodname = moved.get_name(moved)
-				local elements = moved.get_count(moved)
-
-				if elements > count then
-
-					-- remove the surplus parts
-					inv.set_stack(inv,"selection", 1,
-						goodname .. " " .. tostring(count))
-
-					-- the slot we took from is now free
-					inv.set_stack(inv,"goods",from_index,
-						goodname .. " " .. tostring(elements - count))
-
-					-- update the real amount of items in the slot now
-					elements = count
-				end
-
-				local good = nil
-
-				for i = 1, #race.items, 1 do
-
-					local stackstring = goodname .." " .. count
-
-					if race.items[i][1] == stackstring then
-						good = race.items[i]
-					end
-				end
-
-				if good ~= nil then
-					inventory.set_stack(inventory,"price", 1, good[2])
-				else
-					inventory.set_stack(inventory,"price", 1, nil)
-				end
-
-			mobs.update_takeaway(inv)
-
-			end
-		end,
-
-		on_put = mobs.on_put,
-		on_take = mobs.on_take
 	}
 
 	if is_inventory == nil then
@@ -349,13 +191,28 @@ function mobs_trader(self, clicker, entity, race)
 		mobs.add_goods(entity, race)
 	end
 
-	minetest.chat_send_player(player, "[NPC] <Trader " .. self.game_name
+	minetest.chat_send_player(player, "<Trader " .. self.game_name
 		.. "> Hello, " .. player .. ", have a look at my wares.")
 
-	local form = "size[8,6]"
-	--	.. "button_exit[6,0;1.5,1;customer;Customer]"
-		.. "label[0,0.2;Item:]"
-		.. "label[0,1.2;Price:]"
+	local y = 0
+	local h = 6
+
+	local privileged = minetest.check_player_privs(player, {give = true})
+
+	if privileged then
+		y = y + 1
+		h = 7
+	end
+
+	local form = "size[8," .. h .. "]"
+		.. "label[0," .. y + 0.2 .. ";Item:]"
+		.. "label[0," .. y + 1.2 .. ";Price:]"
+
+	if privileged then
+		form = form
+			.. "label[0.5,-0.4;You can edit the trader’s inventory because you have the 'give' privilege]"
+			.. "button[1,0;3,1;edit;Edit trader inventory]"
+	end
 
 	for i = 1, 7 do
 		local x = tostring(i)
@@ -367,42 +224,24 @@ function mobs_trader(self, clicker, entity, race)
 		end
 
 		form = form
-			.. "list[detached:" .. unique_entity_id .. ";goods;" .. x .. ",0;1,1;" .. tostring(i - 1) .. "]"
-			.. "item_image_button[" .. x .. ",1;1,1;"
-				.. stack:get_name() .. ";price" .. tostring(i)
-				.. ";\n\b\b\b\b" .. stack:get_count() .. "]"
-			--.. "list[detached:" .. unique_entity_id .. ";price;2,1;1,1;0]"
+			.. "list[detached:" .. unique_entity_id .. ";goods;" .. x .. "," .. y .. ";1,1;" .. tostring(i - 1) .. "]"
+
+		if editing then
+			form = form
+				.. "list[detached:" .. unique_entity_id .. ";price;" .. x .. "," .. y + 1 .. ";1,1;" .. tostring(i-1) .. "]"
+		else
+			form = form
+				.. "item_image_button[" .. x .. "," .. y + 1 .. ";1,1;"
+					.. stack:get_name() .. ";price" .. tostring(i)
+					.. ";\n\b\b\b\b" .. stack:get_count() .. "]"
+		end
 	end
 
-	if minetest.check_player_privs(clicker, {give = true}) then
-		form = form .."label[0.5,-0.4;You can edit the trader’s inventory because you have the 'give' privilege]"
---		.. "button[6,1;2.2,1;togglelimit;Toggle limit]"
-	end
+	y = y + 2
 
 	form = form
-	--	.. "list[detached:" .. unique_entity_id .. ";main;0,2;8,4;]"
-	--	.. "list[current_player;main;0,6.2;8,4;]"
-	--	.. "listring[detached:" .. unique_entity_id .. ";main]"
-	--	.. "listring[current_player;main]"
-		.. "list[current_player;main;0,2;8,4;]"
+		.. "list[current_player;main;0," .. y .. ";8,4;]"
 
-	--[[
-	minetest.show_formspec(player, "trade", "size[8,10;]"
-		.. default.gui_bg_img
-		.. default.gui_slots
-		.. "label[0,0;Trader " .. self.game_name .. "'s stock:]"
-		.. "list[detached:" .. unique_entity_id .. ";goods;.5,.5;3,5;]"
-		.. "label[4.5,0.5;Selection]"
-		.. "list[detached:" .. unique_entity_id .. ";selection;4.5,1;5.5,2;]"
-		.. "label[6,0.5;Price]"
-		.. "list[detached:" .. unique_entity_id .. ";price;6,1;7,2;]"
-		.. "label[4.5,3.5;Payment]"
-		.. "list[detached:" .. unique_entity_id .. ";payment;4.5,4;5.5,5;]"
-		.. "label[6,3.5;Bought items]"
-		.. "list[detached:" .. unique_entity_id .. ";takeaway;6,4;7.5,5.5;]"
-		.. "list[current_player;main;0,6;8,4;]"
-	)
-	]]
 	minetest.show_formspec(player, "trade", form)
 end
 
@@ -410,6 +249,14 @@ minetest.register_on_player_receive_fields(function(player, form, pressed)
 	local playerName = player:get_player_name()
 
 	if form == "trade" then
+		if pressed.edit then
+			local mob = in_trade[player:get_player_name()]
+
+			mob.editing[player:get_player_name()] = not mob.editing[player:get_player_name()]
+
+			return  mobs_trader(mob, player, nil, mobs.human)
+		end
+
 		local n
 
 		for i = 1, 7 do
@@ -471,3 +318,4 @@ mobs:register_egg("mobs_npc:trader", "Trader", "default_sandstone.png", 1)
 
 -- compatibility
 mobs:alias_mob("mobs:trader", "mobs_npc:trader")
+
