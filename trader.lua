@@ -1,4 +1,6 @@
 
+local in_trade = {}
+
 mobs.human = {
 	items = {
 		--{item for sale, price, chance of appearing in trader's inventory}
@@ -68,6 +70,20 @@ mobs:register_mob("mobs_npc:trader", {
 		punch_end = 219,
 	},
 	on_rightclick = function(self, clicker)
+		--[[for k,v in pairs(self) do print(k,v) end
+		smartshop.showform(self.object:getpos(), clicker, nil, {
+			get_inventory = function() end,
+			get_string = function(s)
+				if s == "owner" then
+					return self.owner
+				end
+			end,
+			get_int = function() return 0 end,
+			get_inventory = function()
+				return self.object:get_inventory()
+			end,
+		})
+		--]]
 		mobs_trader(self, clicker, entity, mobs.human)
 	end,
 })
@@ -223,14 +239,22 @@ end
 mobs.trader_inventories = {}
 
 function mobs.add_goods(entity, race)
-
 	local goods_to_add = nil
 
-	for i = 1, 15 do
+	local n = 0
 
+	for i = 1, 15 do
 		if math.random(0, 100) > race.items[i][3] then
-			mobs.trader_inventory.set_stack(mobs.trader_inventory,
-				"goods", i, race.items[i][1])
+			mobs.trader_inventory.set_stack(
+				mobs.trader_inventory,
+				"goods", n, race.items[i][1]
+			)
+			mobs.trader_inventory.set_stack(
+				mobs.trader_inventory,
+				"price", n, race.items[i][2]
+			)
+
+			n = n + 1
 		end
 	end
 end
@@ -259,6 +283,8 @@ function mobs_trader(self, clicker, entity, race)
 	local unique_entity_id = self.id
 	local is_inventory = minetest.get_inventory({
 		type = "detached", name = unique_entity_id})
+
+	in_trade[clicker:get_player_name()] = self
 
 	local move_put_take = {
 
@@ -317,19 +343,50 @@ function mobs_trader(self, clicker, entity, race)
 	}
 
 	if is_inventory == nil then
-
 		mobs.trader_inventory = minetest.create_detached_inventory(unique_entity_id, move_put_take)
-		mobs.trader_inventory.set_size(mobs.trader_inventory,"goods", 15)
-		mobs.trader_inventory.set_size(mobs.trader_inventory,"takeaway", 1)
-		mobs.trader_inventory.set_size(mobs.trader_inventory,"selection", 1)
-		mobs.trader_inventory.set_size(mobs.trader_inventory,"price", 1)
-		mobs.trader_inventory.set_size(mobs.trader_inventory,"payment", 1)
+		mobs.trader_inventory.set_size(mobs.trader_inventory, "goods", 15)
+		mobs.trader_inventory.set_size(mobs.trader_inventory, "price", 15)
 		mobs.add_goods(entity, race)
 	end
 
 	minetest.chat_send_player(player, "[NPC] <Trader " .. self.game_name
 		.. "> Hello, " .. player .. ", have a look at my wares.")
 
+	local form = "size[8,6]"
+	--	.. "button_exit[6,0;1.5,1;customer;Customer]"
+		.. "label[0,0.2;Item:]"
+		.. "label[0,1.2;Price:]"
+
+	for i = 1, 7 do
+		local x = tostring(i)
+
+		local stack = mobs.trader_inventory:get_stack("price", i)
+
+		if not stack then
+			break
+		end
+
+		form = form
+			.. "list[detached:" .. unique_entity_id .. ";goods;" .. x .. ",0;1,1;" .. tostring(i - 1) .. "]"
+			.. "item_image_button[" .. x .. ",1;1,1;"
+				.. stack:get_name() .. ";price" .. tostring(i)
+				.. ";\n\b\b\b\b" .. stack:get_count() .. "]"
+			--.. "list[detached:" .. unique_entity_id .. ";price;2,1;1,1;0]"
+	end
+
+	if minetest.check_player_privs(clicker, {give = true}) then
+		form = form .."label[0.5,-0.4;You can edit the trader’s inventory because you have the 'give' privilege]"
+--		.. "button[6,1;2.2,1;togglelimit;Toggle limit]"
+	end
+
+	form = form
+	--	.. "list[detached:" .. unique_entity_id .. ";main;0,2;8,4;]"
+	--	.. "list[current_player;main;0,6.2;8,4;]"
+	--	.. "listring[detached:" .. unique_entity_id .. ";main]"
+	--	.. "listring[current_player;main]"
+		.. "list[current_player;main;0,2;8,4;]"
+
+	--[[
 	minetest.show_formspec(player, "trade", "size[8,10;]"
 		.. default.gui_bg_img
 		.. default.gui_slots
@@ -345,7 +402,70 @@ function mobs_trader(self, clicker, entity, race)
 		.. "list[detached:" .. unique_entity_id .. ";takeaway;6,4;7.5,5.5;]"
 		.. "list[current_player;main;0,6;8,4;]"
 	)
+	]]
+	minetest.show_formspec(player, "trade", form)
 end
+
+minetest.register_on_player_receive_fields(function(player, form, pressed)
+	local playerName = player:get_player_name()
+
+	if form == "trade" then
+		local n
+
+		for i = 1, 7 do
+			if pressed["price" .. i] then
+				n = i
+				break
+			end
+		end
+
+		if not n then
+			return
+		end
+
+		local inventory = minetest.get_inventory {
+			type = "detached",
+			name = in_trade[player:get_player_name()].id
+		}
+
+		local goods = inventory:get_stack("goods", n)
+		local price = inventory:get_stack("price", n)
+
+		minetest.chat_send_player(
+			playerName,
+			("%s %s  -- %s %s"):format(
+				goods:get_name(), goods:get_count(),
+				price:get_name(), price:get_count()
+			)
+		)
+
+		-- player inventory
+		local pInventory = minetest.get_inventory {
+			type = "player",
+			name = playerName
+		}
+
+		local priceString = ("%s %s"):format(price:get_name(), price:get_count())
+		local goodsString = ("%s %s"):format(goods:get_name(), goods:get_count())
+
+		if not pInventory:contains_item("main", priceString) then
+			minetest.chat_send_player(playerName, "Dear " .. playerName .. ", you cannot afford that item.")
+
+			return
+		end
+
+		if not pInventory:room_for_item("main", goodsString) then
+			minetest.chat_send_player(playerName, "Dear " .. playerName .. ", you have no room to hold that item.")
+
+			return
+		end
+
+		print(goods:get_name(), goods:get_count(), price:get_name(), price:get_count())
+
+		pInventory:add_item("main", goodsString)
+		pInventory:remove_item("main", priceString)
+	end
+end)
 
 mobs:register_egg("mobs_npc:trader", "Trader", "default_sandstone.png", 1)
 
