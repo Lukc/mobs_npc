@@ -1,4 +1,7 @@
 
+local modpath = minetest.get_modpath("mobs_npc")
+local traderspath = modpath .. "/traders"
+
 local in_trade = {}
 
 mobs.human = {
@@ -124,9 +127,31 @@ end
 
 mobs.trader_inventories = {}
 
-function mobs.add_goods(entity, race)
-	local goods_to_add = nil
+local function load_inventory(entity, inventory)
+	for k,v in pairs(inventory) do
+		entity.trader_inventory:set_stack("goods", k, v.goods)
+		entity.trader_inventory:set_stack("price", k, v.price)
+	end
+end
 
+local function store_inventory(entity, id)
+	local file = io.open(traderspath .. "/" .. id, "w")
+
+	local inventory = {}
+
+	for i = 1, 15 do
+		inventory[#inventory+1] = {
+			goods = entity.trader_inventory:get_stack("goods", i):to_string(),
+			price = entity.trader_inventory:get_stack("price", i):to_string()
+		}
+	end	
+
+	file:write(minetest.serialize(inventory))
+
+	file:close()
+end
+
+function mobs.add_goods(entity, race)
 	local n = 0
 
 	for i = 1, 15 do
@@ -161,7 +186,6 @@ function mobs_trader(self, clicker, entity, race)
 	end
 
 	if not self.game_name then
-
 		self.game_name = tostring(race.names[math.random(1, #race.names)])
 		self.nametag = "Trader " .. self.game_name
 
@@ -178,17 +202,38 @@ function mobs_trader(self, clicker, entity, race)
 	in_trade[clicker:get_player_name()] = self
 
 	local move_put_take = {
-
 		allow_move = mobs.allow_move,
 		allow_put = mobs.allow_put,
 		allow_take = mobs.allow_take,
+		on_put = function()
+			store_inventory(mobs, unique_entity_id)
+		end,
+		on_move = function()
+			store_inventory(mobs, unique_entity_id)
+		end,
+		on_take = function()
+			store_inventory(mobs, unique_entity_id)
+		end
 	}
 
 	if is_inventory == nil then
+		local success, data = pcall(function()
+			f = loadfile(traderspath .. "/" .. unique_entity_id)
+
+			return f()
+		end)
+
 		mobs.trader_inventory = minetest.create_detached_inventory(unique_entity_id, move_put_take)
-		mobs.trader_inventory.set_size(mobs.trader_inventory, "goods", 15)
-		mobs.trader_inventory.set_size(mobs.trader_inventory, "price", 15)
-		mobs.add_goods(entity, race)
+		mobs.trader_inventory:set_size("goods", 15)
+		mobs.trader_inventory:set_size("price", 15)
+
+		if success then
+			load_inventory(mobs, data)
+		else
+			mobs.add_goods(entity, race)
+
+			store_inventory(mobs, unique_entity_id)
+		end
 	end
 
 	minetest.chat_send_player(player, "<Trader " .. self.game_name
