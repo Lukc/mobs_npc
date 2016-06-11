@@ -125,8 +125,6 @@ function mobs.allow_take(inventory, listName, index, stack, player)
 	return stack:get_count()
 end
 
-mobs.trader_inventories = {}
-
 local function load_inventory(entity, inventory)
 	for k,v in pairs(inventory) do
 		entity.trader_inventory:set_stack("goods", k, v.goods)
@@ -151,17 +149,15 @@ local function store_inventory(entity, id)
 	file:close()
 end
 
-function mobs.add_goods(entity, race)
+local function add_goods(self, race)
 	local n = 0
 
 	for i = 1, 15 do
 		if math.random(0, 100) > race.items[i][3] then
-			mobs.trader_inventory.set_stack(
-				mobs.trader_inventory,
+			self.trader_inventory:set_stack(
 				"goods", n, race.items[i][1]
 			)
-			mobs.trader_inventory.set_stack(
-				mobs.trader_inventory,
+			self.trader_inventory:set_stack(
 				"price", n, race.items[i][2]
 			)
 
@@ -205,15 +201,21 @@ function mobs_trader(self, clicker, entity, race)
 		allow_move = mobs.allow_move,
 		allow_put = mobs.allow_put,
 		allow_take = mobs.allow_take,
-		on_put = function()
-			store_inventory(mobs, unique_entity_id)
+		on_put = function(inventory, listname, index, stack, player)
+			local mob = in_trade[player:get_player_name()]
+
+			store_inventory(mob, unique_entity_id)
 		end,
-		on_move = function()
-			store_inventory(mobs, unique_entity_id)
+		on_take = function(inventory, listname, index, stack, player)
+			local mob = in_trade[player:get_player_name()]
+
+			store_inventory(mob, unique_entity_id)
 		end,
-		on_take = function()
-			store_inventory(mobs, unique_entity_id)
-		end
+		on_move = function(inventory, from_list, from_index, to_list, to_index, count, player)
+			local mob = in_trade[player:get_player_name()]
+
+			store_inventory(mob, unique_entity_id)
+		end,
 	}
 
 	if is_inventory == nil then
@@ -223,16 +225,16 @@ function mobs_trader(self, clicker, entity, race)
 			return f()
 		end)
 
-		mobs.trader_inventory = minetest.create_detached_inventory(unique_entity_id, move_put_take)
-		mobs.trader_inventory:set_size("goods", 15)
-		mobs.trader_inventory:set_size("price", 15)
+		self.trader_inventory = minetest.create_detached_inventory(unique_entity_id, move_put_take)
+		self.trader_inventory:set_size("goods", 15)
+		self.trader_inventory:set_size("price", 15)
 
 		if success then
-			load_inventory(mobs, data)
+			load_inventory(self, data)
 		else
-			mobs.add_goods(entity, race)
+			add_goods(self, race)
 
-			store_inventory(mobs, unique_entity_id)
+			store_inventory(self, unique_entity_id)
 		end
 	end
 
@@ -262,7 +264,7 @@ function mobs_trader(self, clicker, entity, race)
 	for i = 1, 7 do
 		local x = tostring(i)
 
-		local stack = mobs.trader_inventory:get_stack("price", i)
+		local stack = self.trader_inventory:get_stack("price", i)
 
 		if not stack then
 			break
