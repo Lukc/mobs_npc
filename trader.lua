@@ -219,23 +219,25 @@ function mobs_trader(self, clicker, entity, race)
 	}
 
 	if is_inventory == nil then
-		local success, data = pcall(function()
-			f = loadfile(traderspath .. "/" .. unique_entity_id)
-
-			return f()
-		end)
-
 		self.trader_inventory = minetest.create_detached_inventory(unique_entity_id, move_put_take)
 		self.trader_inventory:set_size("goods", 15)
 		self.trader_inventory:set_size("price", 15)
+	else
+		self.trader_inventory = is_inventory
+	end
 
-		if success then
-			load_inventory(self, data)
-		else
-			add_goods(self, race)
+	local success, data = pcall(function()
+		f = loadfile(traderspath .. "/" .. unique_entity_id)
 
-			store_inventory(self, unique_entity_id)
-		end
+		return f()
+	end)
+
+	if success then
+		load_inventory(self, data)
+	else
+		add_goods(self, race)
+
+		store_inventory(self, unique_entity_id)
 	end
 
 	minetest.chat_send_player(player, "<Trader " .. self.game_name
